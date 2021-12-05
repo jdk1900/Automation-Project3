@@ -1,0 +1,62 @@
+trigger: none
+
+schedules:
+- cron: "0 0 * * *"
+  displayName: Daily Midnight 12:00 AM
+  always: true
+  branches:
+    include:
+      - backinfra5
+
+variables:
+  agent_vmimage: "windows-latest"
+  applicationgatewaybackup_artifact: ApplicationGatewayBackup_artifact
+  applicationgatewaybackup_path: ApplicationGatewayBackup/
+
+# Stages
+stages:
+- stage: publish_and_run_artifact
+  displayName: Publish & Run artifacts
+
+  jobs:
+    # Publish Artifacts
+    - job: artifacts
+      pool:
+        vmImage: $(agent_vmimage)
+      continueOnError: false
+      workspace:
+        clean: outputs
+
+      steps:
+        - publish: $(applicationgatewaybackup_path)
+          artifact: $(applicationgatewaybackup_artifact)
+
+    # Run backup
+    - job: backup_applicationgateway
+      dependsOn: artifacts
+      pool:
+        vmImage: $(agent_vmimage)
+      continueOnError: false
+      workspace:
+        clean: outputs
+
+      steps:
+      - checkout: none
+
+      - download: current
+        artifact: $(applicationgatewaybackup_artifact)
+
+      - task: AzurePowerShell@4
+        displayName: 'az ps: Run backup script'
+        inputs:
+          azureSubscription:  MyServiceConnection
+          scriptPath: "$(Pipeline.Workspace)/$(applicationgatewaybackup_artifact)/Script/BackupScript.ps1"
+          azurePowerShellVersion: LatestVersion
+
+    # Create the task on the Azure DevOps board
+      - task: AzurePowerShell@4
+        displayName: 'az ps: Run Create Work Item script'
+        inputs:
+          azureSubscription:  MyServiceConnection
+          scriptPath: "$(Pipeline.Workspace)/$(applicationgatewaybackup_artifact)/Script/CreateWorkItem.ps1"
+          azurePowerShellVersion: LatestVersion
